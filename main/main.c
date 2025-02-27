@@ -62,6 +62,8 @@ HAL_StatusTypeDef ret;
 char temp[500];
 uint8_t* dataread;
 
+volatile uint8_t alarmflag=0;
+
 
 #define RX_buffersize 128
 #define EOP_string "EOP"
@@ -145,6 +147,23 @@ else
 }
 rtc_init(&hi2c1);
 
+	rtc_timedate_t timedate = {1, 1, 0, 1, 1, 25, 0xFF};  // 01:01:00, Jan 1, 2025
+    ret = rtc_settime(&timedate);
+    if (ret == HAL_OK) {
+        HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set ok\n\r", 17, HAL_MAX_DELAY);
+    } else {
+        HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set notok\n\r", 20, HAL_MAX_DELAY);
+    }
+    /*
+    // Set alarm to 01:01:10 (10 seconds ahead)
+    rtc_timedate_t alarm = {1, 1, 10, 0xFF, 0xFF, 0xFF, 0xFF};
+    ret = rtc_setalarm(&alarm);
+    if (ret == HAL_OK) {
+        HAL_UART_Transmit(&huart3, (uint8_t*)"alarm set ok\n\r", 14, HAL_MAX_DELAY);
+    } else {
+        HAL_UART_Transmit(&huart3, (uint8_t*)"alarm set notok\n\r", 17, HAL_MAX_DELAY);
+    }
+*/
 
   /* USER CODE END 2 */
 
@@ -188,8 +207,13 @@ rtc_init(&hi2c1);
 	  	        char rxCopy[RX_buffersize];
 	  	        strcpy(rxCopy, (char*)eeprom_data);
 	  	        parse_and_print(rxCopy);
-
-	  	        ret=rtc_settime(&timedate);
+	  	      // Debug alarm registers after parsing
+	  	              read_and_transmit(Second_alarm);
+	  	              read_and_transmit(Minute_alarm);
+	  	              read_and_transmit(Hour_alarm);
+	  	              read_and_transmit(Day_alarm);
+	  	              read_and_transmit(Weekday_alarm);
+	  	        /*ret=rtc_settime(&timedate);
 	  	        if(ret==HAL_OK)
 	  	            {
 	  	          	  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set ok\n\r", 17, HAL_MAX_DELAY);
@@ -199,8 +223,8 @@ rtc_init(&hi2c1);
 	  	            {
 	  	          	  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set notok\n\r", 20, HAL_MAX_DELAY);
 	  	          	  HAL_Delay(100);
-	  	            }
-	  	      ret=rtc_gettime(&timedate);
+	  	            }*/
+	  	      /*ret=rtc_gettime(&timedate);
 	  	            if(ret==HAL_OK)
 	  	            {
 	  	          	  sprintf(uart_buffer,"current time = %02d:%02d:%02d\n\r",timedate.hour,timedate.minute,timedate.second);
@@ -213,17 +237,79 @@ rtc_init(&hi2c1);
 	  	            {
 	  	          	  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc get time notok\n\r", 20, HAL_MAX_DELAY);
 	  	          	  HAL_Delay(100);
-	  	            }
+	  	            }*/
 	  	      	  	          // Reset for the next reception
 	  	          datarecived = 0;
 	  	          rxindex = 0;
 	  	          memset(rxbuffer, 0, RX_buffersize); // Clear buffer
 	  	          HAL_UART_Receive_IT(&huart3, (uint8_t *)&rxbuffer[rxindex], 1);
 	  	      }
-	  rtc_gettime(&timedate);
+	  /*rtc_gettime(&timedate);
 	  	      	  sprintf(uart_buffer,"current time = %02d:%02d:%02d\n\r",timedate.hour,timedate.minute,timedate.second);
 	  	      	  HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
-	  	      	  HAL_Delay(1000);
+	  	      	  HAL_Delay(1000);*/
+
+	  	      	  /*alarmflag=rtc_check_alarm_flag();
+	  	      	  if(alarmflag==0)
+	  	      	  {
+	  	      		  rtc_gettime(&timedate);
+	  	      		  sprintf(uart_buffer,"current time = %02d:%02d:%02d\n\r",timedate.hour,timedate.minute,timedate.second);
+	  	      		  HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+	  	      		  HAL_Delay(1000);
+	  	      		  //HAL_UART_Transmit(&huart3, (uint8_t*)"interrupt flag set\n\r", 20, HAL_MAX_DELAY);
+	  	      	  }
+	  	      	  else
+	  	      	  {
+	  	      		  if (rtc_clearalarm() == HAL_OK) {
+	  	      			  HAL_UART_Transmit(&huart3, (uint8_t *)"Alarm flag cleared.\n\r", 22, HAL_MAX_DELAY);
+	  	      		  } else {
+	  	      			  HAL_UART_Transmit(&huart3, (uint8_t *)"Failed to clear alarm flag.\n\r", 30, HAL_MAX_DELAY);
+	  	      		  }
+	  	      		  //break;
+	  	      	  }*/
+
+	  //read_and_transmit(0x01);
+	  /*alarmflag = rtc_check_alarm_flag();
+	  	      if (alarmflag == 0xFF) {
+	  	          HAL_UART_Transmit(&huart3, (uint8_t*)"Error checking flag\n\r", 21, HAL_MAX_DELAY);
+	  	      } else if (alarmflag == 1) {
+	  	          HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm triggered!\n\r", 18, HAL_MAX_DELAY);
+	  	          if (rtc_clearalarm() == HAL_OK) {
+	  	              HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm flag cleared.\n\r", 22, HAL_MAX_DELAY);
+	  	              break;
+	  	          } else {
+	  	              HAL_UART_Transmit(&huart3, (uint8_t*)"Failed to clear alarm flag.\n\r", 30, HAL_MAX_DELAY);
+	  	          }
+	  	      }
+	  //read_and_transmit(0x01);
+	  rtc_gettime(&timedate);
+	  sprintf(uart_buffer, "current time = %02d:%02d:%02d\n\r", timedate.hour, timedate.minute, timedate.second);
+	  HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+	  HAL_Delay(1000);
+*/
+	  alarmflag = rtc_check_alarm_flag();
+	          if (alarmflag == 0xFF) {
+	              HAL_UART_Transmit(&huart3, (uint8_t*)"Error checking flag\n\r", 21, HAL_MAX_DELAY);
+	          } else if (alarmflag == 1) {
+	              HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm triggered!\n\r", 18, HAL_MAX_DELAY);
+	              if (rtc_clearalarm() == HAL_OK) {
+	                  HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm flag cleared.\n\r", 22, HAL_MAX_DELAY);
+	              } else {
+	                  HAL_UART_Transmit(&huart3, (uint8_t*)"Failed to clear alarm flag.\n\r", 30, HAL_MAX_DELAY);
+	              }
+	          }
+
+	          ret = rtc_gettime(&timedate);
+	          if (ret == HAL_OK) {
+	              sprintf(uart_buffer, "current time = %02d:%02d:%02d\n\r", timedate.hour, timedate.minute, timedate.second);
+	              HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+	          }
+	          else {
+	                  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc get time notok\n\r", 20, HAL_MAX_DELAY);
+	              }
+	          HAL_Delay(1000);
+
+
   }
   /* USER CODE END 3 */
 }

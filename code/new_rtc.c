@@ -115,14 +115,19 @@ HAL_StatusTypeDef rtc_wirte(uint8_t reg_addr,uint8_t value)
 	data[1]=value;
 
 	ret=HAL_I2C_Master_Transmit(&hi2c1, slavwrite, data, sizeof(data), HAL_MAX_DELAY);
-	if(ret==HAL_OK)
+	/*if(ret==HAL_OK)
 	{
 		return HAL_OK;
 	}
 	else
 	{
 		return HAL_ERROR;
-	}
+	}*/
+	if (ret != HAL_OK) {
+	        HAL_UART_Transmit(&huart3, (uint8_t*)"I2C write fail\n\r", 16, HAL_MAX_DELAY);
+	        return HAL_ERROR;
+	    }
+	    return HAL_OK;
 
 }
 
@@ -249,6 +254,16 @@ HAL_StatusTypeDef rtc_setalarm(rtc_timedate_t* timedate)
 	{
 		return HAL_ERROR;
 	}
+
+	uint8_t control2 = rtc_read(Control_2);
+	    if (control2 == 0xFF) return HAL_ERROR;
+	    control2 &= ~(1 << 7);  // Clear MSF
+	    control2 |= (1 << 1);   // Set AIE
+	    if (rtc_wirte(Control_2, control2) != HAL_OK) return HAL_ERROR;
+
+	    HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm set complete\n\r", 20, HAL_MAX_DELAY);
+	    read_and_transmit(Control_2);
+
 	/*ret=rtc_enable_alarm_interrupt();
 	if(ret==HAL_OK)
 	{
@@ -274,7 +289,7 @@ HAL_StatusTypeDef rtc_clearalarm(void)
 		return HAL_ERROR;
 	}
 	control2 &=~(1<<4);
-	control2=0x00;
+	//control2=0x00;
 	if(rtc_wirte(Control_2, control2)!=HAL_OK)
 	{
 		//read_and_transmit(0x01);
@@ -288,8 +303,9 @@ uint8_t rtc_check_alarm_flag(void)
 {
 	{
 	uint8_t control2 = rtc_read(Control_2); // Read the Control_2 register
-	//read_and_transmit(0x01);
+	read_and_transmit(Control_2);
 	    if (control2 == 0xFF) {
+	    	HAL_UART_Transmit(&huart3, (uint8_t*)"Flag read error\n\r", 17, HAL_MAX_DELAY);
 	        return 0xFF; // Error occurred while reading
 	    }
 
@@ -305,7 +321,7 @@ HAL_StatusTypeDef rtc_enable_alarm_interrupt(void) {
 
     control2 |= (1 << 1); // Set the AIE bit (bit 1)
     rtc_wirte(Control_2, control2);
-    read_and_transmit(Control_2);
+    //read_and_transmit(Control_2);
     return HAL_OK;
 }
 
