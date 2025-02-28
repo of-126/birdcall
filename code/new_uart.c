@@ -218,7 +218,7 @@ void parse_and_print(char *buffer) {
     	        	  HAL_Delay(100);
     	          }
     }*/
-    if (id1 == 2) {
+    else if (id1 == 2) {
             if (token) {
                 UART_Print("time-\r\n");
                 int hh, mm, ss;

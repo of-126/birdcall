@@ -615,9 +615,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PD0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -746,6 +750,21 @@ void UART_Print(const char *str) {
     HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
 }
 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == GPIO_PIN_0) {
+	        if (rtc_check_alarm_flag() == 1) {
+	            HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm via INT!\n\r", 16, HAL_MAX_DELAY);
+	            if (rtc_clearalarm() == HAL_OK) {
+	                HAL_UART_Transmit(&huart3, (uint8_t*)"Alarm flag cleared via INT\n\r", 28, HAL_MAX_DELAY);
+	            } else {
+	                HAL_UART_Transmit(&huart3, (uint8_t*)"Failed to clear alarm flag via INT\n\r", 36, HAL_MAX_DELAY);
+	            }
+	        }
+	    }
+
+}
+
 
 
 /* USER CODE END 4 */
