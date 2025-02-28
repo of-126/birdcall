@@ -18,6 +18,8 @@
 #define pagesize 128
 #define EEPROMSIZE 65536
 
+#define ALARM_CONFIG_ADDR 0x0000
+
 
 extern I2C_HandleTypeDef hi2c1;
 extern UART_HandleTypeDef huart3;
@@ -31,6 +33,13 @@ uint8_t* eeprom_read(uint16_t addr, uint8_t* buffer, uint8_t len);
 
 
 void eeprom_read_and_print_string(UART_HandleTypeDef *huart, uint16_t addr, uint8_t* buffer, uint8_t max_len);
+
+
+HAL_StatusTypeDef eeprom_store_config(const char* config);
+HAL_StatusTypeDef eeprom_read_config(char* buffer, uint16_t max_len);
+
+
+
 
 
 

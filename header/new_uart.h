@@ -11,7 +11,7 @@
 #include "main.h"
 #include "new_rtc.h"
 
-#define RX_buffersize 128
+#define RX_buffersize 256
 #define EOP_string "EOP"
 extern char rxbuffer[RX_buffersize];
 extern volatile uint8_t rxindex;

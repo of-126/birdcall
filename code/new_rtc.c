@@ -7,6 +7,11 @@
 
 #include "new_rtc.h"
 
+rtc_timedate_t alarm_queue[MAX_ALARMS] = {0}; // Global alarm queue
+uint8_t alarm_count = 0;                      // Global alarm count
+uint8_t current_idx = 0;                      // Global current index
+
+
 uint8_t decimal_to_bcd(uint8_t decimal) {
     return ((decimal / 10) << 4) | (decimal % 10);
 }

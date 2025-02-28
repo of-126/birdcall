@@ -35,6 +35,8 @@
 #define Control_2 0x01
 #define Control_3 0x02
 
+#define MAX_ALARMS 14
+
 
 extern I2C_HandleTypeDef hi2c1;
 extern UART_HandleTypeDef huart3;
@@ -49,6 +51,11 @@ typedef struct {
 	uint8_t year;
 	uint8_t weekday;
 }rtc_timedate_t;
+
+extern rtc_timedate_t alarm_queue[MAX_ALARMS]; // Alarm queue
+extern uint8_t alarm_count;                    // Number of alarms
+extern uint8_t current_idx;                    // Current alarm index
+
 
 uint8_t decimal_to_bcd(uint8_t decimal);
 //uint8_t decimal_to_bcd(uint8_t decimal) {

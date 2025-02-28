@@ -100,3 +100,38 @@ void eeprom_read_and_print_string(UART_HandleTypeDef *huart, uint16_t addr, uint
     HAL_UART_Transmit(huart, (uint8_t*)"\n\r", 2, HAL_MAX_DELAY);
 }
 
+HAL_StatusTypeDef eeprom_store_config(const char* config) {
+    uint16_t len = strlen(config) + 1;
+    if (len > EEPROMSIZE)
+    	{
+    	HAL_UART_Transmit(&huart3, (uint8_t*)"Config too long\n\r", 17, HAL_MAX_DELAY);
+    	return HAL_ERROR;
+    	}
+    	uint16_t offset = 0;
+        while (offset < len) {
+            uint16_t chunk_size = (len - offset > pagesize) ? pagesize : (len - offset);
+            if (HAL_I2C_Mem_Write(&hi2c1, EEPROMWIRTE, ALARM_CONFIG_ADDR + offset, 2, (uint8_t*)(config + offset), chunk_size, HAL_MAX_DELAY) != HAL_OK) {
+                HAL_UART_Transmit(&huart3, (uint8_t*)"EEPROM write fail\n\r", 19, HAL_MAX_DELAY);
+                return HAL_ERROR;
+            }
+            HAL_Delay(10);  // EEPROM write cycle delay
+            offset += chunk_size;
+        }
+        return HAL_OK;
+}
+
+HAL_StatusTypeDef eeprom_read_config(char* buffer, uint16_t max_len) {
+    if (eeprom_read(ALARM_CONFIG_ADDR, (uint8_t*)buffer, max_len) != NULL) {
+        buffer[max_len - 1] = '\0';
+        return HAL_OK;
+    }
+    return HAL_ERROR;
+}
+
+
+
+
+
+
+
+
