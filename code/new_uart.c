@@ -482,7 +482,7 @@ void parse_and_print(char *buffer) {
             	                HAL_UART_Transmit(&huart3, (uint8_t*)"First alarm set\n\r", 17, HAL_MAX_DELAY);
             	                if (alarm_count > 1) {
             	                    sprintf(uart_buffer, "Next: %02d:%02d:%02d\n\r",
-            	                            alarm_queue[1].hour, alarm_queue[1].minute, alarm_queue[1].second);
+            	                            alarm_queue[0].hour, alarm_queue[0].minute, alarm_queue[0].second);
             	                    HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
             	                }
             	            }

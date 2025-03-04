@@ -29,7 +29,7 @@ HAL_StatusTypeDef eeprom_writebyte(uint16_t addr,uint8_t data);
 uint8_t eeprom_readbyte(uint16_t addr);
 HAL_StatusTypeDef eeprom_write(uint16_t addr,uint8_t* data,uint8_t len);
 //uint8_t* eeprom_read(uint16_t addr);
-uint8_t* eeprom_read(uint16_t addr, uint8_t* buffer, uint8_t len);
+uint8_t* eeprom_read(uint16_t addr, uint8_t* buffer, uint16_t len);
 
 
 void eeprom_read_and_print_string(UART_HandleTypeDef *huart, uint16_t addr, uint8_t* buffer, uint8_t max_len);
@@ -39,7 +39,7 @@ HAL_StatusTypeDef eeprom_store_config(const char* config);
 HAL_StatusTypeDef eeprom_read_config(char* buffer, uint16_t max_len);
 
 
-
+//HAL_StatusTypeDef eeprom_clear(uint16_t addr, uint16_t len);
 
 
 

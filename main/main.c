@@ -65,7 +65,7 @@ uint8_t* dataread;
 volatile uint8_t alarmflag=0;
 
 
-#define RX_buffersize 128
+#define RX_buffersize 256
 #define EOP_string "EOP"
 
 /* USER CODE END PV */
@@ -149,6 +149,7 @@ rtc_init(&hi2c1);
 
 	rtc_timedate_t timedate = {1, 1, 0, 1, 1, 01, 0xFF};
     ret = rtc_settime(&timedate);
+    HAL_Delay(100);
     if (ret == HAL_OK) {
         HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set ok\n\r", 17, HAL_MAX_DELAY);
     } else {
@@ -156,7 +157,10 @@ rtc_init(&hi2c1);
     }
 
     char config_buffer[RX_buffersize];
+    //eeprom_read_and_print_string(&huart3, 0x0000, (uint8_t*)config_buffer, pagesize);
         if (eeprom_read_config(config_buffer, RX_buffersize) == HAL_OK) {
+    	//if(eeprom_read(0x0000, (uint8_t*)config_buffer, 256)==HAL_OK)
+
             HAL_UART_Transmit(&huart3, (uint8_t*)"Restoring: ", 11, HAL_MAX_DELAY);
             HAL_UART_Transmit(&huart3, (uint8_t*)config_buffer, strlen(config_buffer), HAL_MAX_DELAY);
             HAL_UART_Transmit(&huart3, (uint8_t*)"\n\r", 2, HAL_MAX_DELAY);
@@ -328,7 +332,7 @@ rtc_init(&hi2c1);
 
         if (datarecived)  // Full message received
         	  	      {
-        		  	  	  /*uint8_t eeprom_data[pagesize];
+        		  	  	  uint8_t eeprom_data[RX_buffersize];
         	  	          senddata(rxbuffer, strlen(rxbuffer)); // Send received data
         	  	          ret=eeprom_write(0x0000, (uint8_t*)&rxbuffer, strlen(rxbuffer)+1);
         	  	          if(ret==HAL_OK)
@@ -377,7 +381,7 @@ rtc_init(&hi2c1);
         	  	          	  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc time set notok\n\r", 20, HAL_MAX_DELAY);
         	  	          	  HAL_Delay(100);
         	  	            }*/
-        	  	      /*ret=rtc_gettime(&timedate);
+        	  	      ret=rtc_gettime(&timedate);
         	  	            if(ret==HAL_OK)
         	  	            {
         	  	          	  sprintf(uart_buffer,"current time = %02d:%02d:%02d\n\r",timedate.hour,timedate.minute,timedate.second);
@@ -390,7 +394,7 @@ rtc_init(&hi2c1);
         	  	            {
         	  	          	  HAL_UART_Transmit(&huart3, (uint8_t*)"rtc get time notok\n\r", 20, HAL_MAX_DELAY);
         	  	          	  HAL_Delay(100);
-        	  	            }*/
+        	  	            }
         	  	      	  	          // Reset for the next reception
 
         				  parse_and_print((char*)rxbuffer);
@@ -944,13 +948,21 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	                if (current_idx < alarm_count) {
 	                    ret = rtc_setalarm(&alarm_queue[current_idx]);
 	                    if (ret == HAL_OK) {
-	                        if (current_idx + 1 < alarm_count) {
+	                        if (current_idx < alarm_count) {
 	                            sprintf(uart_buffer, "Next: %02d:%02d:%02d\n\r",
-	                                    alarm_queue[current_idx + 1].hour, alarm_queue[current_idx + 1].minute, alarm_queue[current_idx + 1].second);
+	                                    alarm_queue[current_idx].hour, alarm_queue[current_idx].minute, alarm_queue[current_idx].second);
 	                            HAL_UART_Transmit(&huart3, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+	                        }
+	                        else
+	                        {
+	                        	HAL_UART_Transmit(&huart3, (uint8_t*)"Failed to set next alarm\n\r", 26, HAL_MAX_DELAY);
 	                        }
 	                    }
 
+	                }
+	                else
+	                {
+	                	HAL_UART_Transmit(&huart3, (uint8_t*)"No more alarms\n\r", 16, HAL_MAX_DELAY);
 	                }
 
 	        }
