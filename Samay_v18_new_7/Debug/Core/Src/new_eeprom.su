@@ -1,0 +1,8 @@
+../Core/Src/new_eeprom.c:13:19:eeprom_init	8	static
+../Core/Src/new_eeprom.c:26:19:eeprom_writebyte	32	static
+../Core/Src/new_eeprom.c:32:9:eeprom_readbyte	40	static
+../Core/Src/new_eeprom.c:46:19:eeprom_write	32	static
+../Core/Src/new_eeprom.c:73:10:eeprom_read	64	static
+../Core/Src/new_eeprom.c:92:6:eeprom_read_and_print_string	32	static
+../Core/Src/new_eeprom.c:120:19:eeprom_store_config	40	static
+../Core/Src/new_eeprom.c:167:19:eeprom_read_config	24	static

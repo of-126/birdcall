@@ -1,0 +1,11 @@
+../Core/Src/new_uart.c:25:6:senddata	16	static
+../Core/Src/new_uart.c:32:7:recivedata	8	static
+../Core/Src/new_uart.c:71:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/new_uart.c:300:6:parse_and_print	336	static
+../Core/Src/new_uart.c:582:6:process_id1	104	static
+../Core/Src/new_uart.c:627:6:process_id2	360	static
+../Core/Src/new_uart.c:718:6:process_id3	16	static
+../Core/Src/new_uart.c:723:6:process_id4	224	static
+../Core/Src/new_uart.c:867:6:modeselect	8	static
+../Core/Src/new_uart.c:881:6:printtime	16	static
+../Core/Src/new_uart.c:946:6:UART_Print	16	static

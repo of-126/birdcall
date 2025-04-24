@@ -1,0 +1,12 @@
+../Core/Src/new_rtc.c:15:9:decimal_to_bcd	1
+../Core/Src/new_rtc.c:19:9:bcd_to_decimal	1
+../Core/Src/new_rtc.c:22:6:rtc_init	7
+../Core/Src/new_rtc.c:116:19:rtc_wirte	2
+../Core/Src/new_rtc.c:139:9:rtc_read	3
+../Core/Src/new_rtc.c:159:19:rtc_settime	7
+../Core/Src/new_rtc.c:190:19:rtc_gettime	7
+../Core/Src/new_rtc.c:235:19:rtc_setalarm	13
+../Core/Src/new_rtc.c:286:19:rtc_clearalarm	3
+../Core/Src/new_rtc.c:307:9:rtc_check_alarm_flag	2
+../Core/Src/new_rtc.c:321:19:rtc_enable_alarm_interrupt	2
+../Core/Src/new_rtc.c:333:6:read_and_transmit	2

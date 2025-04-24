@@ -1,0 +1,1155 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2024 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "fatfs.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include "ff.h"
+#include "string.h"
+#include "File_Handling.h"
+#include <stdlib.h>
+#include <stdarg.h>
+#include "diskio.h"
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define print(msg) \
+    HAL_UART_Transmit(&huart3, (uint8_t *)(msg), sizeof(msg) - 1, HAL_MAX_DELAY)
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c2;
+
+I2S_HandleTypeDef hi2s2;
+I2S_HandleTypeDef hi2s3;
+DMA_HandleTypeDef hdma_spi2_rx;
+
+SD_HandleTypeDef hsd;
+
+UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
+
+/* USER CODE BEGIN PV */
+HAL_StatusTypeDef I2S_Status;
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_SDIO_SD_Init(void);
+static void MX_I2S2_Init(void);
+static void MX_I2S3_Init(void);
+static void MX_I2C2_Init(void);
+/* USER CODE BEGIN PFP */
+void I2C_CODEC_Settings(void);
+void SD_Card(void);
+void message(const char *format, ...);
+void configure_codec(void);
+void CODEC_RST(void);
+void TS472IQT_EN(void);
+void History_update(void);
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+char buffer[100];
+int indx = 0;
+int Select_SD[] = {1,0,0,0};
+int number = 0;
+//uint16_t audio_data[50000];
+//uint16_t audio_data_buffer[10000];
+
+extern FATFS fs;  // file system
+extern FIL fil; // File
+extern FILINFO fno;
+extern FRESULT fresult;  // result
+extern UINT br, bw;  // File read/write count
+
+/*	Local Files	*/
+FATFS fs_local;          // File system object
+FIL file_1,file_2;        // File object
+FRESULT res;		    // Result code
+UINT bw_1,bw_2;         	  // Bytes written
+FILINFO fno_local;
+const char *text = "Hello, FATFS!\r\n";
+char File_name_1[32];
+char File_name_2[32];
+char file_path[32];
+#define HEADER_SIZE 44 // Size of the WAVE header
+#define AUDIO_DATA_SIZE 32 // Size of the audio data (16 bytes in this case)
+
+#define audio_buffer_SIZE 1024  // Define the size of the audio buffer
+uint16_t audio_buffer_2[audio_buffer_SIZE];  // DMA buffer for audio data	ADC 3&4
+uint16_t audio_buffer_1[audio_buffer_SIZE];  // DMA buffer for audio data	ADC 1&2
+
+int save_frequency = 0;
+int stop_saving = 0;
+
+typedef struct {
+    uint8_t reg_address;
+    uint8_t value;
+} CodecConfig;
+
+// Adjusted codec configuration to reduce sensitivity
+CodecConfig codec_configs[] = {
+    {0x00, 0x01}, // Power up and release reset
+    {0x01, 0x01}, // MCLKIN = 256 × Fs (Assuming 12.288 MHz for 16 kHz Fs)
+    {0x04, 0x3F}, // Enable ADC1 and ADC2 (ADC_EN1 = 1, ADC_EN2 = 1); disable ADC3/ADC4
+    {0x05, 0x00}, // I2S mode, 16-bit data, (SDATA_FMT = 00)
+    {0x06, 0x11}, // SDATAOUT1, stereo output, no TDM
+    {0x07, 0x32}, // Some configuration
+    {0x08, 0x10}, // Some configuration
+    {0x09, 0xF0}, // Some configuration
+	{0x0A, 0xFF},
+	{0x0B, 0xFF},
+	{0x0C, 0xA0},	/*		ADC 3(U20) 	*/
+	{0x0D, 0xA0},	/*		ADC 4(U19)	*/
+    {0x0E, 0x00}, // Disable summing, independent channels
+    {0x1A, 0xFF}  // Some configuration
+};
+
+
+// Define the I2C device address
+#define I2C_DEVICE_ADDR (0x71 << 1)
+
+// Define the registers with names and reset values
+typedef struct {
+    uint8_t address;
+    const char *name;
+    uint8_t reset_value;
+} Register;
+
+const Register registers[] = {
+    {0x00, "M_POWER", 0x00},
+    {0x01, "PLL_CONTROL", 0x41},
+    {0x04, "BLOCK_POWER_SAI", 0x3F},
+    {0x05, "SAI_CTRL0", 0x02},
+    {0x06, "SAI_CTRL1", 0x00},
+    {0x07, "SAI_CMAP12", 0x10},
+    {0x08, "SAI_CMAP34", 0x32},
+    {0x09, "SAI_OVERTEMP", 0xF0},
+    {0x0A, "POSTADC_GAIN1", 0xA0},
+    {0x0B, "POSTADC_GAIN2", 0xA0},
+    {0x0C, "POSTADC_GAIN3", 0xA0},
+    {0x0D, "POSTADC_GAIN4", 0xA0},
+    {0x0E, "MISC_CONTROL", 0x02},
+    {0x19, "ASDC_CLIP", 0x00},
+    {0x1A, "DC_HPF_CAL", 0x00}
+};
+/**
+ *
+Reg		Used		Used		Reg Name	Bit 7		Bit 6		Bit 5	Bit 4	Bit 3	Bit 2	Bit 1	Bit 0	Reset	Access
+0x00	0x0000 0001	0x01	M_POWER	S_RST	RESERVED						PWUP	0x00	RW
+0x01	0x0100 0010	0x42	PLL_CONTROL		PLL_LOCK	PLL_MUTE	RESERVED	CLK_S	RESERVED	MCS			0x41	RW
+0x04	0x0011 1111	0x3F	BLOCK_POWER_SAI	LR_POL		BCLKEDGE	LDO_EN	VREF_EN	ADC_EN4	ADC_EN3	ADC_EN2	ADC_EN1	0x3F	RW
+0x05	0x0000 0001	0x01	SAI_CTRL0		SDATA_FMT	SAI			FS			0x02	RW
+0x06	0x1001 0001	0x91	SAI_CTRL1		SDATA_SEL	SLOT_WIDTH		DATA_WIDTH	LR_MODE	SAI_MSB	BCLKRATE	SAI_MS	0x00	RW
+0x07	0x0011 0010	0x32	SAI_CMAP12		CMAP_C2				CMAP_C1				0x10	RW
+0x08	0x0001 0000	0x10	SAI_CMAP34		CMAP_C4				CMAP_C3				0x32	RW
+0x09						SAI_OVERTEMP	SAI_DRV_C4	SAI_DRV_C3	SAI_DRV_C2	SAI_DRV_C1	DRV_HIZ	RESERVED		OT	0xF0	RW
+0x0A						POSTADC_GAIN1	PADC_GAIN1								0xA0	RW
+0x0B						POSTADC_GAIN2	PADC_GAIN2								0xA0	RW
+0x0C						POSTADC_GAIN3	PADC_GAIN3								0xA0	RW
+0x0D						POSTADC_GAIN4	PADC_GAIN4								0xA0	RW
+0x0E	0x0000 0011	0x03	MISC_CONTROL	SUM_MODE	RESERVED	MMUTE		RESERVED			DC_CAL	0x02	RW
+0x19						ASDC_CLIP		RESERVED				ADC_CLIP4	ADC_CLIP3	ADC_CLIP2	ADC_CLIP1	0x00	RW
+0x1A	0x1111 1111	0xFF	DC_HPF_CAL		DC_SUB_C4	DC_SUB_C3	DC_SUB_C2	DC_SUB_C1	DC_HPF_C4	DC_HPF_C3	DC_HPF_C2	DC_HPF_C1	0x00	RW
+ *
+ * */
+// Number of registers
+#define NUM_REGISTERS (sizeof(registers) / sizeof(registers[0]))
+
+// Function to read and print register values
+void read_and_print_registers(void);
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* USER CODE BEGIN 1 */
+	int length;
+	char *data = "\r\nHello I Am Samay\r\n";
+
+	uint16_t i2s_rec16;
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
+  MX_FATFS_Init();
+  MX_SDIO_SD_Init();
+  MX_I2S2_Init();
+  MX_I2S3_Init();
+  MX_I2C2_Init();
+  /* USER CODE BEGIN 2 */
+  HAL_Delay(1000);
+  message("Message: %s\r\n", "________________ Samay Project_6 ___________________________\r\n");
+
+  TS472IQT_EN();		/*	4 Preamp has to set to 1	*/
+
+  CODEC_RST();			/*	ADAU1978 Reset -> GPIO PE1	*/
+
+  configure_codec(); 	/*	ADAU1978 Config */
+
+  /**********************************************************************************************************	SD card Mux down ***/
+
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET);// OE	SD 1 and 2
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_SET);// OE	SD 3 and 4
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+  HAL_Delay(100);
+
+  /**********************************************************************************************************	SD 1	***/
+  message("Message: %s\r\n", "________________SD Card 1___________________________\r\n");
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET);	// OE  Pin pulled low		SD 1 and 2
+  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_RESET);	// SEL Pin pulled low		SD 1
+  HAL_Delay(100);
+
+//  message("Message: %s\r\n", "________________Started to Stor 2 files in SD Card 1___________________________\r\n");
+//
+//	fresult = f_mount(&fs_local, "/", 1);/*	Mount Stroge	*/
+//	if (fresult != FR_OK) message ("ERROR!!! in mounting SD CARD...\r\n");
+
+
+//	fresult = f_stat ("History.txt", &fno_local);	/*	Check For File Presence	*/
+//	if (fresult == FR_OK){
+//		message("History!!! History exists!!!! \r\n");
+//		History_update();
+//	}
+//	else message("History!!! Missing !!!\r\n");
+//
+//
+//	// Open the file for reading
+//
+///************************************************************************************************************/
+//	sprintf(File_name_1, "file_%d_1.txt",number);
+//	sprintf(File_name_2, "file_%d_2.txt",number);
+//
+//	fresult = f_stat (File_name_1, &fno_local);	/*	Check For File Presence	*/
+//	fresult = f_stat (File_name_2, &fno_local);	/*	Check For File Presence	*/
+//	if (fresult == FR_OK)message("ERROR!!! *%s* already exists!!!!\r\n use Update_File \r\n","FILE1.txt");
+//	else
+//	{
+//		fresult = f_open(&file_1,File_name_1, FA_CREATE_ALWAYS|FA_READ|FA_WRITE);	/*	Create file	by opening */
+//			if (fresult != FR_OK) message("ERROR!!! No. %d in creating file *%s*\r\n", fresult, File_name_1);
+//
+//		fresult = f_open(&file_2,File_name_2, FA_CREATE_ALWAYS|FA_READ|FA_WRITE);	/*	Create file	by opening */
+//			if (fresult != FR_OK) message("ERROR!!! No. %d in creating file *%s*\r\n", fresult, File_name_1);
+//
+//		fresult = f_close(&file_1);	/*	Close file	*/
+//		fresult = f_close(&file_2);	/*	Close file	*/
+//			if (fresult != FR_OK) message("ERROR No. %d in closing file *%s*\r\n", fresult,File_name_1);
+//	}
+//
+//	f_open(&file_1, File_name_1, FA_OPEN_APPEND | FA_WRITE);
+//	f_open(&file_2, File_name_2, FA_OPEN_APPEND | FA_WRITE);
+//
+//    res = f_write(&file_1, text, strlen(text), &bw);
+//    res = f_write(&file_2, text, strlen(text), &bw);
+//    if (res != FR_OK || bw != strlen(text)) message("Failed to write to file: %d\n", res);
+//
+//	f_close(&file_1);
+//	f_close(&file_2);
+//
+//	fresult = f_mount(NULL, "/", 1);	/*	Unmount Stroge	*/
+//	if (fresult != FR_OK) message("ERROR!!! in UNMOUNTING SD CARD\r\n");
+//
+//  message("Message: %s\r\n", "________________Stored 2 files in SD Card 1___________________________\r\n");
+
+//  while(1);
+
+
+
+  Mount_SD("/");
+  Format_SD();
+  Create_File("FILE1.txt");
+  Create_File("FILE2.txt");
+  Unmount_SD("/");
+
+  Mount_SD("/");
+  f_open(&fil, "FILE1.txt", FA_OPEN_APPEND | FA_WRITE);
+
+
+  read_and_print_registers();
+  HAL_I2S_Receive(&hi2s2, audio_buffer_2, audio_buffer_SIZE, HAL_MAX_DELAY);
+  message("\r\n");
+
+  // Print even-indexed 16-bit values 				ADC 3
+  message("Even-indexed samples:\r\n");
+  for (size_t i = 0; i < sizeof(audio_buffer_2) / sizeof(audio_buffer_2[0]); i += 2) {
+	  message("%u", audio_buffer_2[i]);
+      if (i < sizeof(audio_buffer_2) / sizeof(audio_buffer_2[0]) - 2) {
+    	  message(", ");
+      }
+  }
+  message("\r\n"); // New line at the end
+
+  // Print odd-indexed 16-bit values 				ADC 4
+  message("Odd-indexed samples:\r\n");
+  for (size_t i = 1; i < sizeof(audio_buffer_2) / sizeof(audio_buffer_2[0]); i += 2) {
+	  message("%u", audio_buffer_2[i]);
+      if (i < sizeof(audio_buffer_2) / sizeof(audio_buffer_2[0]) - 1) {
+    	  message(", ");
+      }
+  }
+  message("\r\n"); // New line at the end
+
+  memset(audio_buffer_2, 0, sizeof(audio_buffer_2));
+
+  message("Message: %s\r\n", "________________	Recording Started	_____________\r\n");
+  // Start I2S DMA reception
+//   if (HAL_I2S_Receive_DMA(&hi2s2, audio_buffer_2, audio_buffer_SIZE) != HAL_OK) {			/*	hi2s2	ADC 3(U20) & 4(U19)		*/
+//       // Error handling
+//	   message("Message: %s\r\n", "________________HAL_I2S_Receive_DMA Error !!!!__!!__\r\n");
+//       Error_Handler();
+//   }
+
+   if (HAL_I2S_Receive_DMA(&hi2s3, audio_buffer_1, audio_buffer_SIZE) != HAL_OK) {			/*	hi2s2	ADC 3(U20) & 4(U19)		*/
+       // Error handling
+	   message("Message: %s\r\n", "________________HAL_I2S_Receive_DMA Error !!!!__!!__\r\n");
+       Error_Handler();
+   }
+
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+	HAL_Delay(1000);
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);
+	HAL_Delay(1000);
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+
+	if(save_frequency >= 1000){
+		stop_saving = 1;
+		read_and_print_registers();
+
+		HAL_Delay(1000);
+
+		f_close(&fil);
+		Unmount_SD("/");
+		message("\r\nDATA Saved and SD Card un mounted____Check____\r\n");
+		HAL_Delay(1000);
+		break;
+
+	}
+  }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+
+
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
+  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
+  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.ClockSpeed = 100000;
+  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief I2S2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2S2_Init(void)
+{
+
+  /* USER CODE BEGIN I2S2_Init 0 */
+
+  /* USER CODE END I2S2_Init 0 */
+
+  /* USER CODE BEGIN I2S2_Init 1 */
+
+  /* USER CODE END I2S2_Init 1 */
+  hi2s2.Instance = SPI2;
+  hi2s2.Init.Mode = I2S_MODE_SLAVE_RX;
+  hi2s2.Init.Standard = I2S_STANDARD_PHILIPS;
+  hi2s2.Init.DataFormat = I2S_DATAFORMAT_16B_EXTENDED;
+  hi2s2.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
+  hi2s2.Init.AudioFreq = I2S_AUDIOFREQ_16K;
+  hi2s2.Init.CPOL = I2S_CPOL_LOW;
+  hi2s2.Init.ClockSource = I2S_CLOCK_PLL;
+  hi2s2.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
+  if (HAL_I2S_Init(&hi2s2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2S2_Init 2 */
+
+  /* USER CODE END I2S2_Init 2 */
+
+}
+
+/**
+  * @brief I2S3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2S3_Init(void)
+{
+
+  /* USER CODE BEGIN I2S3_Init 0 */
+
+  /* USER CODE END I2S3_Init 0 */
+
+  /* USER CODE BEGIN I2S3_Init 1 */
+
+  /* USER CODE END I2S3_Init 1 */
+  hi2s3.Instance = SPI3;
+  hi2s3.Init.Mode = I2S_MODE_SLAVE_RX;
+  hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
+  hi2s3.Init.DataFormat = I2S_DATAFORMAT_16B_EXTENDED;
+  hi2s3.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
+  hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_16K;
+  hi2s3.Init.CPOL = I2S_CPOL_LOW;
+  hi2s3.Init.ClockSource = I2S_CLOCK_PLL;
+  hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
+  if (HAL_I2S_Init(&hi2s3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2S3_Init 2 */
+
+  /* USER CODE END I2S3_Init 2 */
+
+}
+
+/**
+  * @brief SDIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SDIO_SD_Init(void)
+{
+
+  /* USER CODE BEGIN SDIO_Init 0 */
+
+  /* USER CODE END SDIO_Init 0 */
+
+  /* USER CODE BEGIN SDIO_Init 1 */
+
+  /* USER CODE END SDIO_Init 1 */
+  hsd.Instance = SDIO;
+  hsd.Init.ClockEdge = SDIO_CLOCK_EDGE_RISING;
+  hsd.Init.ClockBypass = SDIO_CLOCK_BYPASS_DISABLE;
+  hsd.Init.ClockPowerSave = SDIO_CLOCK_POWER_SAVE_DISABLE;
+  hsd.Init.BusWide = SDIO_BUS_WIDE_4B;
+  hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
+  hsd.Init.ClockDiv = 4;
+  /* USER CODE BEGIN SDIO_Init 2 */
+  hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
+
+  /* USER CODE END SDIO_Init 2 */
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_MultiProcessor_Init(&huart3, 0, UART_WAKEUPMETHOD_IDLELINE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_1, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_15|GPIO_PIN_3
+                          |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PE4 PE5 PE1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PD12 PD13 PD15 PD3
+                           PD4 PD5 PD6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_15|GPIO_PIN_3
+                          |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA9 PA10 PA11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+
+
+// DMA transfer complete callback
+void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s) {
+    if (hi2s->Instance == SPI2) {
+        // Save second half of the buffer to the file
+    	if(!stop_saving){
+    		if (f_write(&fil, &audio_buffer_2[audio_buffer_SIZE / 2], audio_buffer_SIZE / 2 * sizeof(uint16_t), &bw) != FR_OK) {
+				Error_Handler();  // File write failed
+			}
+    		save_frequency ++;
+    	}
+    }
+    if (hi2s->Instance == SPI3) {
+        // Save second half of the buffer to the file
+    	if(!stop_saving){
+    		if (f_write(&fil, &audio_buffer_1[audio_buffer_SIZE / 2], audio_buffer_SIZE / 2 * sizeof(uint16_t), &bw) != FR_OK) {
+				Error_Handler();  // File write failed
+			}
+    		save_frequency ++;
+    	}
+    }
+}
+
+// DMA transfer half-complete callback
+void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
+    if (hi2s->Instance == SPI2) {
+        // Save first half of the buffer to the file
+    	if(!stop_saving){
+			if (f_write(&fil, &audio_buffer_2[0], audio_buffer_SIZE / 2 * sizeof(uint16_t), &bw) != FR_OK) {
+				Error_Handler();  // File write failed
+			}
+    	}
+    }
+
+    if (hi2s->Instance == SPI3) {
+		// Save first half of the buffer to the file
+		if(!stop_saving){
+			if (f_write(&fil, &audio_buffer_1[0], audio_buffer_SIZE / 2 * sizeof(uint16_t), &bw) != FR_OK) {
+				Error_Handler();  // File write failed
+			}
+		}
+	}
+}
+
+
+//
+//// DMA transfer complete callback
+//void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s) {
+//    if (hi2s->Instance == SPI3) {
+//    	message("Message: %s\r\n", "________________Process the audio_data buffer !!!!__(:__\r\n");
+//        // Process the audio_data buffer
+//        // Example: Send the audio data for further processing or playback
+//    }
+//}
+//
+//// DMA transfer half-complete callback
+//void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
+//    if (hi2s->Instance == SPI3) {
+//    	message("Message: %s\r\n", "________________Process the first half !!!!__(:__\r\n");
+//        // Process the first half of the audio_data buffer
+//    }
+//}
+//
+////// Interrupt handler for DMA
+////void DMA1_Stream0_IRQHandler(void) {
+////    HAL_DMA_IRQHandler(hi2s3.hdmarx);
+////}
+////
+
+
+void I2C_CODEC_Settings(void)
+{
+
+	uint8_t Codec_address [] = {};
+	uint8_t Codec_Config_v[] = {};
+
+	uint8_t i2c_tx =0x00;	uint8_t i2c_rbf;
+	if (HAL_I2C_IsDeviceReady(&hi2c2,(0x71<<1), 5, 1000) != HAL_OK)
+		message("Message: %s\r\n", "_____I2C_DeviceReady Not Happy!!!_____\r\n");
+	HAL_Delay(500);
+
+	i2c_tx=0x01;
+	if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x00,1,&i2c_tx,1,1000)!=HAL_OK)
+		message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x00 Not Happy!!!_____\r\n");
+	HAL_Delay(100);
+
+
+	//	i2c_tx=0x44; //MCS Bits set to 100=768xfs MCLK
+	i2c_tx=0x42; //MCS Bits set to 010=384*fs MCLK
+	if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x01,1,&i2c_tx,1,1000)!=HAL_OK)
+		message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x01 Not Happy!!!_____\r\n");
+	HAL_Delay(100);
+
+	//	i2c_tx=0x33;
+	i2c_tx=0x3F;
+	if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x04,1,&i2c_tx,1,1000)!=HAL_OK)
+		message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x04 Not Happy!!!_____\r\n");
+	HAL_Delay(100);
+
+	i2c_tx=0x01;//16kHz to 24kHz sampling rate
+	//i2c_tx=0x02;//32kHz to 48kHz sampling rate
+	if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x05,1,&i2c_tx,1,1000)!=HAL_OK)
+		message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x05 Not Happy!!!_____\r\n");
+	HAL_Delay(100);
+
+	if(	HAL_I2C_Mem_Read(&hi2c2,(0x71<<1),0x06,1,(uint8_t *)&i2c_rbf,1,1000)==HAL_OK)
+	{
+		HAL_GPIO_WritePin(GPIOD,GPIO_PIN_13,GPIO_PIN_RESET);
+		i2c_rbf=0x00;
+
+		HAL_Delay(10);
+
+		//i2c_tx=0x01;
+		//i2c_tx=0x81;
+		i2c_tx=0x91;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x06,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x06 Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+
+		i2c_tx=0x32;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x07,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x07 Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+
+		i2c_tx=0x10;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x08,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x08 Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+
+		/*	Added */
+		i2c_tx=0xF0;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x09,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x08 Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+
+		i2c_tx=0x03;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x0E,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x0E Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+
+		i2c_tx=0xFF;
+		if(HAL_I2C_Mem_Write(&hi2c2,(0x71<<1),0x1A,1,&i2c_tx,1,1000)!=HAL_OK)
+			message("Message: %s\r\n", "_____I2C_I2C_Mem_Write 0x1A Not Happy!!!_____\r\n");
+		HAL_Delay(100);
+	}
+	else
+		message("Message: %s\r\n", "_____I2C_I2C_Mem_Read Not Happy Check (*)!!!_____\r\n");
+}
+
+
+void configure_codec() {
+    uint8_t i2c_tx;
+    uint8_t i2c_rbf;
+
+    if (HAL_I2C_IsDeviceReady(&hi2c2, (0x71 << 1), 5, 1000) != HAL_OK) {
+        message("Message: %s\r\n", "_____I2C_DeviceReady Not Happy!!!_____\r\n");
+    }
+    HAL_Delay(500);
+
+    // Loop through the codec configurations
+    for (size_t i = 0; i < sizeof(codec_configs) / sizeof(codec_configs[0]); i++) {
+        i2c_tx = codec_configs[i].value;
+        if (HAL_I2C_Mem_Write(&hi2c2, (0x71 << 1), codec_configs[i].reg_address, 1, &i2c_tx, 1, 1000) != HAL_OK) {
+            message("Message: %s\r\n", "_____I2C_I2C_Mem_Write Not Happy!!!_____\r\n");
+        }
+        HAL_Delay(100);
+    }
+
+    // Read back from register 0x06
+    if (HAL_I2C_Mem_Read(&hi2c2, (0x71 << 1), 0x06, 1, &i2c_rbf, 1, 1000) == HAL_OK) {
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+        i2c_rbf = 0x00;
+
+        HAL_Delay(10);
+    } else {
+        message("Message: %s\r\n", "_____I2C_I2C_Mem_Read Not Happy Check (*)!!!_____\r\n");
+    }
+
+//    read_and_print_registers();
+}
+
+void History_update(void)
+{
+	// Open the file for reading
+	res = f_open(&file_1, "History.txt", FA_READ);
+	if (res == FR_OK) {
+		// Read data from the file
+		res = f_read(&file_1, buffer, sizeof(buffer) - 1, &br);
+		if (res == FR_OK && br > 0) {
+			buffer[br] = '\0';           // Null-terminate the string
+			number = atoi(buffer);       // Convert string to integer
+			number++;                    // Increment the number
+			message("Incremented Number: %d\r\n", number);
+		} else {
+			message("Failed to read from file.\r\n");
+		}
+		f_close(&file_1); // Close the file
+	} else {
+		message("Failed to open History.txt.\r\n");
+	}
+
+	// Open the file for writing to update the number
+	res = f_open(&file_1, "History.txt", FA_WRITE | FA_CREATE_ALWAYS);
+	if (res == FR_OK) {
+		// Convert the incremented number back to a string and write to the file
+		sprintf(buffer, "%d", number);
+		res = f_write(&file_1, buffer, strlen(buffer), &bw);
+		if (res == FR_OK) {
+//			message("Updated History.txt with number: %d\r\n", number);
+		} else {
+			message("Failed to write to file.\r\n");
+		}
+		f_close(&file_1); // Close the file
+	} else {
+		message("Failed to open History.txt for writing.\r\n");
+	}
+}
+void SD_Card(void)
+{
+	  HAL_Delay(100);
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET);// OE	SD 1 and 2
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_SET);// OE	SD 3 and 4
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+	  HAL_Delay(100);
+
+
+	  /**********************************************************************************************************	SD 1	***/
+	  if(Select_SD[0] == 1){
+		  message("Message: %s\r\n", "________________SD Card 1___________________________\r\n");
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET);	// OE  Pin pulled low		SD 1 and 2
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_RESET);	// SEL Pin pulled low		SD 1
+		  HAL_Delay(100);
+
+		  Mount_SD("/");
+		  Format_SD();
+		  Create_File("FILE1.TXT");
+		  Create_File("FILE2.TXT");
+		  Unmount_SD("/");
+
+		  Mount_SD("/");
+		  sprintf(buffer, "Hello ---> %d\n", indx);
+		  Update_File("FILE1.TXT", buffer);
+		  sprintf(buffer, "world ---> %d\n", indx);
+		  Update_File("FILE2.TXT", buffer);
+		  Unmount_SD("/");
+		  indx++;
+
+	  }
+	  /**********************************************************************************************************	SD 2	***/
+	  if(Select_SD[1] == 1){
+		  message("Message: %s\r\n", "________________SD Card 2___________________________\r\n");
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET);	// OE  Pin pulled low		SD 1 and 2
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);	// SEL Pin pulled low		SD 2
+		  HAL_Delay(100);
+
+		  Mount_SD("/");
+		  Format_SD();
+		  Create_File("FILE1.TXT");
+		  Create_File("FILE2.TXT");
+		  Unmount_SD("/");
+
+		  Mount_SD("/");
+		  sprintf(buffer, "Hello ---> %d\n", indx);
+		  Update_File("FILE1.TXT", buffer);
+		  sprintf(buffer, "world ---> %d\n", indx);
+		  Update_File("FILE2.TXT", buffer);
+		  Unmount_SD("/");
+		  indx++;
+
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET);// OE	SD 1 and 2
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);
+		  HAL_Delay(100);
+	  }
+	  /**********************************************************************************************************	SD 3	***/
+	  if(Select_SD[2] == 1){
+		  message("Message: %s\r\n", "________________SD Card 3___________________________\r\n");
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);	// OE  Pin pulled low		SD 3 and 4
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);	// SEL Pin pulled low		SD 3
+		  HAL_Delay(100);
+
+		  Mount_SD("/");
+		  Format_SD();
+		  Create_File("FILE1.TXT");
+		  Create_File("FILE2.TXT");
+		  Unmount_SD("/");
+
+		  Mount_SD("/");
+		  sprintf(buffer, "Hello ---> %d\n", indx);
+		  Update_File("FILE1.TXT", buffer);
+		  sprintf(buffer, "world ---> %d\n", indx);
+		  Update_File("FILE2.TXT", buffer);
+		  Unmount_SD("/");
+		  indx++;
+
+	  }
+	  /**********************************************************************************************************	SD 4	***/
+	  if(Select_SD[3] == 1){
+		  message("Message: %s\r\n", "________________SD Card 4___________________________\r\n");
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);	// OE  Pin pulled low		SD 3 and 4
+		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);	// SEL Pin pulled low		SD 4
+		  HAL_Delay(100);
+
+		  Mount_SD("/");
+		  Format_SD();
+		  Create_File("FILE1.TXT");
+		  Create_File("FILE2.TXT");
+		  Unmount_SD("/");
+
+		  Mount_SD("/");
+		  sprintf(buffer, "Hello ---> %d\n", indx);
+		  Update_File("FILE1.TXT", buffer);
+		  sprintf(buffer, "world ---> %d\n", indx);
+		  Update_File("FILE2.TXT", buffer);
+		  Unmount_SD("/");
+		  indx++;
+	  }
+}
+
+void CODEC_RST(void){
+  message("Message: %s\r\n", "_____I2C_I2C CODEC Reset_____\r\n");
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_SET);	/*	Settle time is around 0.82 S	*/
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_SET);
+  HAL_Delay(1000);	/*	Need to Sart State machine	*/
+
+}
+
+void TS472IQT_EN(void){
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+	HAL_Delay(100);
+}
+
+
+// Function to read and print register values
+void read_and_print_registers() {
+    uint8_t i2c_rbf; // Buffer to store the read byte
+    HAL_StatusTypeDef ret;
+
+    message("Reg\tName\t\tRead Value\tReset Value\r\n");
+    message("----------------------------------------------------------\r\n");
+
+    for (uint8_t i = 0; i < NUM_REGISTERS; i++) {
+        uint8_t reg = registers[i].address;
+        ret = HAL_I2C_Mem_Read(&hi2c2, I2C_DEVICE_ADDR, reg, 1, &i2c_rbf, 1, 1000);
+
+        if (ret == HAL_OK) {
+        	message("0x%02X\t%-15s\t0x%02X\t\t0x%02X\r\n", reg, registers[i].name, i2c_rbf, registers[i].reset_value);
+        } else {
+        	message("0x%02X\t%-15s\tError\t\t0x%02X\r\n", reg, registers[i].name, registers[i].reset_value);
+        }
+    }
+
+    message("----------------------------------------------------------\r\n");
+}
+
+void message(const char *format, ...) {
+    char *buf = malloc(audio_buffer_SIZE * sizeof(char)); // Allocate memory for the buffer
+    if (buf != NULL) { // Check if malloc was successful
+        va_list args;
+        va_start(args, format);
+        vsnprintf(buf, audio_buffer_SIZE, format, args); // Format the string safely
+        va_end(args);
+        Send_Uart(buf); // Send the formatted string over UART
+        free(buf);      // Free the allocated memory
+    }
+}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
